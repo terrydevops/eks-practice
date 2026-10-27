@@ -1,0 +1,46 @@
+###
+# AppProjects — the platform / apps governance split.
+###
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: Platform addons (observability, ingress, karpenter, secrets, etc.)
+  sourceRepos:
+    - __GIT_REPO_URL__
+    - https://*.github.io/* # upstream helm chart repos
+    - oci://public.ecr.aws/* # karpenter + other ECR-public OCI charts
+    - public.ecr.aws/*       # ArgoCD stores OCI repoURL without the oci:// prefix
+    - https://charts.fairwinds.com/* # VPA (fairwinds) helm repo
+    - https://charts.chaos-mesh.org  # Chaos Mesh helm repo (exact, NO trailing slash)
+    - https://charts.external-secrets.io # External Secrets Operator helm repo
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*" # platform components create resources in kube-system etc.
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: apps
+  namespace: argocd
+spec:
+  description: Business application workloads — scoped to their namespaces.
+  sourceRepos:
+    - __GIT_REPO_URL__
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*-app" # apps land in <team>-app namespaces only
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace # apps may create their own namespace, nothing else cluster-scoped
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

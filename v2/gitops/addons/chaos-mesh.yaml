@@ -1,0 +1,58 @@
+###
+# Chaos Mesh — chaos-engineering toolkit (PodChaos / NetworkChaos / StressChaos /
+# IOChaos / DNSChaos via CRDs + a web dashboard).
+#
+# Node-specific notes (this cluster runs Bottlerocket + containerd):
+#  - chaosDaemon.runtime/socketPath point at the containerd CRI socket, NOT docker.
+#    PodChaos (kill / pod-failure) is API-level and works regardless; Network/Stress
+#    chaos go through chaos-daemon (nsenter into the target), which needs the socket.
+#  - dashboard.securityMode=false: practice cluster, dashboard reached via
+#    port-forward only (ClusterIP, never exposed). Flip to true + a token for prod.
+#  - ServerSideApply + ServerSideDiff: the CRDs are large and the webhook mutates
+#    resources, so this avoids the perpetual-OutOfSync we hit with Kyverno.
+###
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: chaos-mesh
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+spec:
+  project: platform
+  source:
+    repoURL: https://charts.chaos-mesh.org
+    chart: chaos-mesh
+    targetRevision: 2.8.3
+    helm:
+      releaseName: chaos-mesh
+      valuesObject:
+        chaosDaemon:
+          runtime: containerd
+          socketPath: /run/containerd/containerd.sock
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+        controllerManager:
+          replicaCount: 1
+          resources:
+            requests:
+              cpu: 25m
+              memory: 128Mi
+        dashboard:
+          create: true
+          securityMode: false
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: chaos-mesh
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

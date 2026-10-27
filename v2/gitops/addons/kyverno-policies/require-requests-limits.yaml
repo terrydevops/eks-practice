@@ -1,0 +1,30 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-requests-limits
+  annotations:
+    policies.kyverno.io/title: Require Requests and Limits
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+spec:
+  background: true
+  rules:
+    - name: validate-resources
+      # Scope to business namespaces only (<app>-app); platform components exempt.
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: ["*-app"]
+      validate:
+        failureAction: Audit
+        message: "CPU/memory requests and a memory limit are required on every container."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  requests:
+                    cpu: "?*"
+                    memory: "?*"
+                  limits:
+                    memory: "?*"

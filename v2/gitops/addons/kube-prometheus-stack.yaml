@@ -1,0 +1,168 @@
+###
+# kube-prometheus-stack — Prometheus + Grafana + node-exporter + kube-state-metrics
+# + the prometheus-operator (which brings the monitoring CRDs: Prometheus,
+# ServiceMonitor, PodMonitor, PrometheusRule, Alertmanager, ...).
+#
+# Notes for ArgoCD:
+#  - repoURL has NO trailing slash (AppProject glob '*' does not match '/').
+#  - ServerSideApply=true: the operator CRDs are huge and exceed the client-side
+#    last-applied annotation 256KB limit.
+#  - Prometheus TSDB is on a gp3 PVC (EBS CSI driver + gp3 default StorageClass are
+#    installed — see storageclass-gp3.yaml / the cluster module). retention 15d so
+#    SLO error-budget windows (1w) survive pod restarts instead of resetting.
+#  - alertmanager has a real Slack receiver, webhook sourced from SSM via ESO
+#    (alertmanager-external-secret.yaml) so burn-rate alerts actually page someone.
+###
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 87.2.1
+    helm:
+      releaseName: kube-prometheus-stack
+      valuesObject:
+        alertmanager:
+          enabled: true
+          # Real routing: critical alerts (incl. Pyrra's fast-burn SLO alerts) go to
+          # Slack; the chart's always-firing Watchdog is routed to a null receiver as
+          # a dead-man's-switch you can alert-on-absence externally. The webhook URL is
+          # NOT in git — it's read from the mounted alertmanager-slack Secret (ESO/SSM)
+          # via api_url_file, so this config is safe to commit.
+          config:
+            route:
+              group_by: ["namespace", "alertname"]
+              group_wait: 30s
+              group_interval: 5m
+              repeat_interval: 4h
+              receiver: slack-default
+              routes:
+                - matchers: ['alertname = "Watchdog"']
+                  receiver: "null"
+                - matchers: ['severity = "critical"']
+                  receiver: slack-critical
+            receivers:
+              - name: "null"
+              - name: slack-default
+                slack_configs:
+                  - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/webhook
+                    channel: "#alerts"
+                    send_resolved: true
+                    title: '{{ template "slack.default.title" . }}'
+                    text: '{{ template "slack.default.text" . }}'
+              - name: slack-critical
+                slack_configs:
+                  - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/webhook
+                    channel: "#alerts-critical"
+                    send_resolved: true
+                    title: '{{ template "slack.default.title" . }}'
+                    text: '{{ template "slack.default.text" . }}'
+          alertmanagerSpec:
+            # Mounts Secret monitoring/alertmanager-slack at
+            # /etc/alertmanager/secrets/alertmanager-slack/ (key: webhook).
+            secrets:
+              - alertmanager-slack
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 128Mi
+        grafana:
+          # Pin admin creds to a pre-existing Secret. Without this the chart
+          # regenerates a RANDOM admin password on every render; the Grafana
+          # Deployment's checksum/secret annotation then changes each ArgoCD
+          # sync, rolling the pod (and dropping any port-forward) constantly.
+          # Stable secret -> stable checksum -> no more restart loop.
+          # Secret monitoring/grafana-admin holds admin-user / admin-password.
+          admin:
+            existingSecret: grafana-admin
+            userKey: admin-user
+            passwordKey: admin-password
+          service:
+            type: ClusterIP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+          # Public HTTPS via ALB + the *.__BASE_DOMAIN__ wildcard cert, so access no
+          # longer depends on `kubectl port-forward` (a fragile local tunnel).
+          # external-dns auto-creates grafana.__BASE_DOMAIN__ -> ALB; Grafana's own
+          # login guards it. For prod you'd add WAF / OIDC / IP allowlist on top.
+          ingress:
+            enabled: true
+            ingressClassName: alb
+            annotations:
+              alb.ingress.kubernetes.io/scheme: internet-facing
+              alb.ingress.kubernetes.io/target-type: ip
+              alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+              alb.ingress.kubernetes.io/ssl-redirect: "443"
+              # Defense-in-depth on top of Grafana's login: the ALB only accepts
+              # connections from this source IP. NOTE: this is a dynamic egress IP
+              # (3.105.x = AWS Sydney) — update the CIDR if your public IP changes,
+              # or if you browse from a different network than this machine.
+              alb.ingress.kubernetes.io/inbound-cidrs: 3.105.138.255/32
+            hosts:
+              - grafana.__BASE_DOMAIN__
+            path: /
+            pathType: Prefix
+          # Tell Grafana its external URL so redirects / share-links are correct.
+          grafana.ini:
+            server:
+              domain: grafana.__BASE_DOMAIN__
+              root_url: https://grafana.__BASE_DOMAIN__
+        prometheus:
+          prometheusSpec:
+            # 15d so a 1w SLO window has real history. WaitForFirstConsumer on gp3
+            # means the EBS volume is created in the Prometheus pod's AZ on first
+            # schedule. Still single-node/short-term — a 28d SLO needs Thanos/Mimir.
+            retention: 15d
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: gp3
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 20Gi
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 1Gi
+        prometheus-node-exporter:
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+        kube-state-metrics:
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+        # On EKS the control plane is AWS-managed and these components do NOT
+        # expose scrapeable metrics endpoints. The chart enables them by default
+        # (built for self-managed clusters), which makes Prometheus create dead
+        # targets and fire permanent false positives: KubeControllerManagerDown,
+        # KubeSchedulerDown, KubeEtcdDown (absent(up{...}) is always true). Disable
+        # the scrape jobs + their alert rules — they can never succeed on EKS.
+        kubeControllerManager:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        kubeEtcd:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

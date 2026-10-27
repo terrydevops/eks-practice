@@ -1,0 +1,41 @@
+###
+# NetworkPolicy for the whoami namespace. Enforced natively by the VPC CNI
+# (enableNetworkPolicy=true on the cluster). Two policies:
+#   1. default-deny-ingress: nothing can reach any pod in the namespace by default.
+#   2. allow-whoami-ingress: re-open only whoami:8080, and only to callers in the
+#      SAME namespace. So cross-namespace traffic (e.g. staging -> dev) is blocked,
+#      which also enforces dev/staging isolation on the shared non-prod cluster.
+# Egress is left untouched, so DNS / outbound still work.
+###
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {} # all pods in this namespace
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-whoami-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: whoami
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {} # any pod in the SAME namespace
+        # Public-subnet CIDRs = where the internet-facing ALB's ENIs live. Lets the
+        # ALB reach whoami:8080 WITHOUT re-allowing cross-namespace pods (those run
+        # in the PRIVATE subnets 10.20.0.0/20 + 10.20.16.0/20, not matched here).
+        - ipBlock:
+            cidr: 10.20.64.0/20
+        - ipBlock:
+            cidr: 10.20.80.0/20
+      ports:
+        - protocol: TCP
+          port: 8080

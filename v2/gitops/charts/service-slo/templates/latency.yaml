@@ -1,0 +1,46 @@
+###
+# Latency SLO per service that opts in (services[].latency set).
+#
+# blackbox emits probe_duration_seconds as a GAUGE, not a histogram, so Pyrra's
+# native `latency` indicator (which needs _bucket series) can't be used. Instead a
+# recording rule collapses the gauge into a 0/1 "fast enough" signal, and a
+# bool_gauge SLO measures the fraction of time it stays 1 — a legitimate latency
+# SLO built from the SLI we actually have.
+###
+{{- range .Values.services }}
+{{- if .latency }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ .name }}-latency-recording
+  namespace: {{ $.Values.namespace }}
+  labels:
+    release: {{ $.Values.prometheusRelease }}
+spec:
+  groups:
+    - name: {{ .name }}-latency
+      rules:
+        # 1 when the last probe was faster than the threshold, else 0.
+        - record: probe_latency_ok
+          expr: probe_duration_seconds{job="{{ $.Values.probe.jobName }}", instance="{{ .url }}"} < bool {{ .latency.threshold }}
+---
+apiVersion: pyrra.dev/v1alpha1
+kind: ServiceLevelObjective
+metadata:
+  name: {{ .name }}-latency
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    prometheus: k8s
+    release: {{ $.Values.prometheusRelease }}
+spec:
+  target: {{ .latency.target | quote }}
+  window: {{ .latency.window }}
+  description: {{ .name }} responds within {{ .latency.threshold }}s (blackbox probe_duration_seconds)
+  indicator:
+    bool_gauge:
+      metric: probe_latency_ok{job="{{ $.Values.probe.jobName }}", instance="{{ .url }}"}
+{{- end }}
+{{- end }}

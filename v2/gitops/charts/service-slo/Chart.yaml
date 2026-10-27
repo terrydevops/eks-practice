@@ -1,0 +1,10 @@
+apiVersion: v2
+name: service-slo
+description: >-
+  Reusable blackbox SLO bundle — one Probe plus per-service availability and
+  (optional) latency ServiceLevelObjectives for Pyrra. Parameterise host/target/
+  window in values; drop the chart into any cluster running Pyrra +
+  kube-prometheus-stack + blackbox-exporter.
+type: application
+version: 0.1.0
+appVersion: "1.0"

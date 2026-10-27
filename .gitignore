@@ -1,0 +1,34 @@
+# Terraform
+.terraform/
+.terraform.tfstate.lock.info
+
+# State files — never commit (may contain secrets); state lives in S3
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Variable files that may carry secrets/overrides
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Plans
+*.tfplan
+
+# Editor / OS
+.DS_Store
+*.swp
+
+# Local-only notes (personal knowledge summary; not English-only, not committed)
+JOURNEY.md
+.state-backups/
+
+# Keep .terraform.lock.hcl committed for reproducible provider versions
+!.terraform.lock.hcl
+
+# Real environment values (account IDs, repo, domain) — see local.env.example
+local.env

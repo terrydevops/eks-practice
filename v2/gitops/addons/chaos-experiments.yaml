@@ -1,0 +1,32 @@
+###
+# ArgoCD Application for the codified chaos experiments (../chaos-experiments/).
+#
+# DELIBERATELY MANUAL SYNC: no `automated` block, so ArgoCD tracks drift but never
+# applies these CRs on its own — fault injection stays an opt-in action. Sync it
+# from the UI/CLI (`argocd app sync chaos-experiments`) to load the experiments +
+# the weekly Schedule; the one-off PodChaos/NetworkChaos/StressChaos only fire
+# when their CR is present, so review before syncing.
+#
+# The Chaos Mesh CRDs are installed by the chaos-mesh addon; SkipDryRunOnMissing-
+# Resource guards the first sync if that hasn't reconciled yet.
+###
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: chaos-experiments
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: __GIT_REPO_URL__
+    targetRevision: main
+    path: v2/gitops/chaos-experiments
+    directory:
+      exclude: README.md
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: chaos-mesh
+  syncPolicy:
+    # No `automated:` — manual sync only. selfHeal/prune intentionally omitted.
+    syncOptions:
+      - SkipDryRunOnMissingResource=true

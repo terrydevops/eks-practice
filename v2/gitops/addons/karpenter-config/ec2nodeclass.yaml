@@ -1,0 +1,20 @@
+###
+# EC2NodeClass — the AWS-specific node template. Discovers subnets + security
+# group by the karpenter.sh/discovery=eks-practice-nonprod tag (subnets tagged in
+# the network module, node SG tagged in the cluster module). `role` is the node
+# IAM role Terraform created (Karpenter builds the instance profile from it).
+###
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  role: Karpenter-eks-practice-nonprod-20260625062856626100000015
+  amiSelectorTerms:
+    - alias: bottlerocket@latest
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: eks-practice-nonprod
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: eks-practice-nonprod

@@ -1,0 +1,44 @@
+###
+# Kyverno policy engine. PSA (namespace labels) already enforces the Pod Security
+# Standards baseline; Kyverno adds the fine-grained rules PSA cannot express
+# (require requests/limits, disallow :latest, require labels, registry allowlist).
+# Custom policies live in kyverno-policies/ and start in Audit, so nothing is
+# blocked at admission. Pinned to a single replica per controller -- this is a
+# small non-prod cluster.
+###
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    # ServerSideDiff: diff via an SSA dry-run on the API server, so apiserver-
+    # defaulted fields on the (large) Kyverno CRDs are reflected on BOTH sides.
+    # Plain ignoreDifferences could not fix this (the drift is in argocd-owned
+    # fields the apiserver re-normalizes, not solely apiserver-managed ones).
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+spec:
+  project: platform
+  source:
+    # NO trailing slash: the platform AppProject allows https://*.github.io/* and
+    # ArgoCD's glob '*' does not match across '/', so a trailing slash makes the
+    # repo "not permitted" (same gotcha we hit with metrics-server).
+    repoURL: https://kyverno.github.io/kyverno
+    chart: kyverno
+    targetRevision: 3.8.1
+    helm:
+      releaseName: kyverno
+      valuesObject:
+        admissionController: { replicas: 1 }
+        backgroundController: { replicas: 1 }
+        cleanupController: { replicas: 1 }
+        reportsController: { replicas: 1 }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kyverno
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true # Kyverno CRDs are large; SSA avoids client-side apply limits

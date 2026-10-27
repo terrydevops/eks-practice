@@ -1,0 +1,9 @@
+# Real account IDs / repo / domain live in local.env; git stores __PLACEHOLDERS__.
+*.tf    filter=localvals
+*.yaml  filter=localvals
+*.yml   filter=localvals
+*.md    filter=localvals
+*.sh    filter=localvals
+*.json  filter=localvals
+# the filter's own tooling is never filtered
+scripts/**  -filter

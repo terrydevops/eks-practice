@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: bootstrap
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: __GIT_REPO_URL__
+    targetRevision: main
+    # Root app-of-apps: this dir holds AppProjects + the addons/apps
+    # ApplicationSets (which use a cluster generator + the bridge metadata).
+    path: v2/gitops/bootstrap
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,25 @@
+###
+# Karpenter NodePool + EC2NodeClass (the "what nodes to launch" config). Kept in a
+# git subdir and applied by its own Application so sync-wave +5 runs AFTER the CRDs
+# (-10) and controller (-5) exist. The parent addons app is non-recursive, so it
+# does not pick up this subdir directly — only this Application manifest does.
+###
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: karpenter-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  project: platform
+  source:
+    repoURL: __GIT_REPO_URL__
+    targetRevision: HEAD
+    path: v2/gitops/addons/karpenter-config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["ServerSideApply=true"]

@@ -1,0 +1,32 @@
+###
+# Per-namespace governance for the whoami namespace (one whoami env per namespace).
+#  - ResourceQuota caps the namespace total, so one env can't starve another on the
+#    shared non-prod cluster, and forces every pod to declare requests/limits.
+#  - LimitRange supplies default requests/limits, so pods that omit them still
+#    satisfy the quota (e.g. an ad-hoc debug pod).
+###
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: whoami-quota
+spec:
+  hard:
+    requests.cpu: "1"
+    requests.memory: 1Gi
+    limits.cpu: "2"
+    limits.memory: 2Gi
+    pods: "10"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: whoami-limits
+spec:
+  limits:
+    - type: Container
+      default: # applied if a container sets no limits
+        cpu: 200m
+        memory: 128Mi
+      defaultRequest: # applied if a container sets no requests
+        cpu: 50m
+        memory: 64Mi

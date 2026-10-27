@@ -1,0 +1,27 @@
+###
+# Continuous verification: kill one whoami pod every Monday 03:00 (low traffic).
+# This is the piece that turns "we ran chaos once by hand" into a standing
+# resilience check — the SLO is the pass/fail judge (if the weekly kill ever burns
+# the error budget, the Pyrra burn-rate alert fires into Slack).
+#
+# concurrencyPolicy Forbid: never overlap runs. historyLimit: keep the last 5
+# PodChaos objects for inspection. Dormant until this path is synced.
+###
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: whoami-weekly-pod-kill
+  namespace: chaos-mesh
+spec:
+  schedule: "0 3 * * 1"
+  concurrencyPolicy: Forbid
+  historyLimit: 5
+  type: PodChaos
+  podChaos:
+    action: pod-kill
+    mode: one
+    selector:
+      namespaces:
+        - whoami-staging-app
+      labelSelectors:
+        app: whoami

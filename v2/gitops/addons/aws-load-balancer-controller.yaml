@@ -1,0 +1,36 @@
+###
+# AWS Load Balancer Controller — turns Ingress (ingressClassName: alb) into real
+# ALBs. AWS side (IAM via Pod Identity) is in the cluster module; this is the Helm
+# install. SA name must match the Pod Identity association (kube-system/
+# aws-load-balancer-controller). region AND vpcId are set explicitly: the nodes
+# enforce IMDSv2 with hop limit 1, so pods can't reach instance metadata, and the
+# controller's default vpcId auto-discovery (via IMDS) would crashloop on
+# "failed to fetch VPC ID from instance metadata". Pinning vpcId avoids IMDS.
+###
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aws-load-balancer-controller
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: https://aws.github.io/eks-charts
+    chart: aws-load-balancer-controller
+    targetRevision: 3.4.0
+    helm:
+      releaseName: aws-load-balancer-controller
+      valuesObject:
+        clusterName: eks-practice-nonprod
+        region: ap-southeast-2
+        vpcId: vpc-0f55aa94cbbc79ef3
+        serviceAccount:
+          name: aws-load-balancer-controller
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

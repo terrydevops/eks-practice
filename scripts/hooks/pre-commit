@@ -1,0 +1,21 @@
+#!/bin/sh
+# Block a commit if any real value from local.env reaches a staged blob
+# (e.g. the localvals filter was not configured), or if staged files contain CJK.
+top="$(git rev-parse --show-toplevel)"
+files=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$files" ] && exit 0
+bad=""
+for f in $files; do
+  blob="$(git show ":$f" 2>/dev/null)"
+  if [ -f "$top/local.env" ]; then
+    for v in $(grep -vE '^\s*(#|$)' "$top/local.env" | cut -d= -f2-); do
+      printf '%s' "$blob" | grep -qF -- "$v" && bad="$bad\n  $f (real value from local.env)"
+    done
+  fi
+  printf '%s' "$blob" | perl -CSD -ne 'if (/\p{Han}/){exit 1}' || bad="$bad\n  $f (Chinese characters)"
+done
+if [ -n "$bad" ]; then
+  printf '✗ Commit blocked:%b\nRun scripts/setup-local.sh, then re-stage.\n' "$bad" >&2
+  exit 1
+fi
+exit 0

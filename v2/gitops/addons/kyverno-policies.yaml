@@ -1,0 +1,36 @@
+###
+# Custom Kyverno ClusterPolicies, kept in a sub-directory (mirrors the
+# karpenter-config pattern). sync-wave 1 + retry so they apply after the Kyverno
+# CRDs from the kyverno Application (sync-wave 0) exist. All policies ship in
+# Audit mode -- violations surface in PolicyReports, nothing is rejected.
+###
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno-policies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    # ServerSideDiff: Kyverno's admission webhook mutates these ClusterPolicies,
+    # injecting spec defaults (admission, emitWarning, validationFailureAction) and
+    # per-rule fields (skipBackgroundRequests, allowExistingViolations). An SSA
+    # dry-run diff runs that webhook, so the injected fields match on both sides.
+    # ignoreDifferences could not fix it: spec.rules is co-owned (ArgoCD owns the
+    # array, Kyverno adds fields inside it), which field-manager ignores can't split.
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+spec:
+  project: platform
+  source:
+    repoURL: __GIT_REPO_URL__
+    targetRevision: main
+    path: v2/gitops/addons/kyverno-policies
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kyverno
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff: { duration: 15s, factor: 2, maxDuration: 5m }

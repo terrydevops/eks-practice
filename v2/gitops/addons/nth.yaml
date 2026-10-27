@@ -1,0 +1,48 @@
+###
+# AWS Node Termination Handler — graceful drain on EC2 scheduled-maintenance /
+# spot / rebalance events. IMDS mode (enableSqsTerminationDraining: false) so it
+# does NOT read an SQS queue and cannot conflict with Karpenter's own interruption
+# queue. Scoped via nodeAffinity to nodes WITHOUT karpenter.sh/nodepool, i.e. the
+# bootstrap managed node group only (Karpenter handles its own nodes).
+#
+# NOTE: on this on-demand managed NG the spot path is inert and EKS already drains
+# on scale/version ops, so the real residual value is just scheduled-maintenance
+# events — low ROI, kept for completeness.
+###
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aws-node-termination-handler
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: https://aws.github.io/eks-charts
+    chart: aws-node-termination-handler
+    targetRevision: 0.21.0
+    helm:
+      releaseName: aws-node-termination-handler
+      valuesObject:
+        enableSqsTerminationDraining: false # IMDS mode -> no conflict with Karpenter SQS
+        enableSpotInterruptionDraining: true
+        enableScheduledEventDraining: true
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: karpenter.sh/nodepool # absent on managed-NG nodes
+                      operator: DoesNotExist
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 64Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,36 @@
+###
+# NodePool — what Karpenter is allowed to launch and how it consolidates.
+# Constrained to small, cheap instance types and allows spot to keep practice
+# costs down. Karpenter only adds nodes when pods are Pending (no min count),
+# and consolidates / removes them when underutilized.
+###
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: default
+spec:
+  template:
+    spec:
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot", "on-demand"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["t3.medium", "t3.large", "t3a.medium", "t3a.large"]
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      expireAfter: 720h
+  limits:
+    cpu: "10" # safety cap for a practice cluster
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 1m

@@ -1,0 +1,26 @@
+###
+# One-off experiment: burn ~80% of one CPU inside a whoami pod for 2m.
+#
+# Steady-state hypothesis: probe_success/latency hold; the container's CPU usage
+# panel spikes and VPA/HPA (if tuned) or Karpenter reacts. Useful to see whether
+# requests/limits are sized so one hot pod doesn't starve its neighbours.
+#
+# Requires chaos-daemon (containerd socket) — same as NetworkChaos.
+###
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: whoami-cpu-stress
+  namespace: chaos-mesh
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - whoami-staging-app
+    labelSelectors:
+      app: whoami
+  stressors:
+    cpu:
+      workers: 1
+      load: 80
+  duration: "2m"

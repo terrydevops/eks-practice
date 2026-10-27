@@ -1,0 +1,50 @@
+###
+# Pyrra — SLO manager. Two containers in one pod: an API/UI and a kubernetes
+# operator that watches ServiceLevelObjective CRDs and GENERATES PrometheusRule
+# objects (multi-window burn-rate recording + alerting rules, the Google SRE way).
+# Those rules are picked up by the kube-prometheus-stack Prometheus, and the Pyrra
+# UI shows each SLO's error budget + burn rate.
+#
+# - prometheusUrl default (prometheus-operated.monitoring.svc:9090) already points
+#   at our Prometheus, so no override needed.
+# - No cert-manager in the cluster => the (optional) validating webhook is skipped;
+#   Pyrra still works, invalid SLOs just fail at reconcile instead of admission.
+# - CRDs ship in the chart's crds/ dir (ArgoCD applies them); SSA for the large CRD.
+###
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pyrra
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+spec:
+  project: platform
+  source:
+    repoURL: https://pyrra-dev.github.io/helm-charts
+    chart: pyrra
+    targetRevision: 1.8.1
+    helm:
+      releaseName: pyrra
+      valuesObject:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
+        operator:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: pyrra
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

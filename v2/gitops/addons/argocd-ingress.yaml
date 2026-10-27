@@ -1,0 +1,39 @@
+###
+# ArgoCD UI via ALB Ingress -> argocd.__BASE_DOMAIN__, so we stop depending on
+# `kubectl port-forward` (a fragile local tunnel). Same pattern as the Grafana
+# ingress; external-dns auto-creates the record, the *.__BASE_DOMAIN__ wildcard
+# ACM cert is auto-discovered.
+#
+# Security: two layers, same as Grafana --
+#  - network: inbound-cidrs restricts the ALB to a single source IP.
+#  - app: ArgoCD's own login (admin + the argocd-initial-admin-secret password).
+#
+# argocd-server runs in TLS mode, so the ALB must re-encrypt to the backend:
+# backend-protocol HTTPS + an HTTPS-only listener (no http->https redirect needed).
+###
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  namespace: argocd
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/backend-protocol: HTTPS
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    # Defense-in-depth: ALB only accepts this source IP (dynamic — update if it changes).
+    alb.ingress.kubernetes.io/inbound-cidrs: 3.105.138.255/32
+spec:
+  ingressClassName: alb
+  rules:
+    - host: argocd.__BASE_DOMAIN__
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argo-cd-argocd-server
+                port:
+                  number: 443

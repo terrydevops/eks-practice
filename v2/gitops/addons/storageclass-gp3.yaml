@@ -1,0 +1,22 @@
+###
+# Default StorageClass: gp3 via the EBS CSI driver (ebs.csi.aws.com). The EKS
+# built-in gp2 class uses the removed in-tree provisioner, so it cannot provision
+# on k8s 1.34 -- this replaces it as the default.
+#
+# volumeBindingMode WaitForFirstConsumer: the EBS volume is only created once a
+# Pod using the PVC is scheduled, so the volume lands in that Pod's AZ (avoids
+# cross-AZ attach failures). So a PVC stays Pending until a Pod consumes it.
+###
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+parameters:
+  type: gp3
+  encrypted: "true"

@@ -1,0 +1,24 @@
+###
+# One blackbox Probe scraping every service URL end-to-end (DNS -> ALB -> pod).
+# Produces probe_success (1/0) and probe_duration_seconds — the SLIs the SLOs
+# below consume. label release=<prometheusRelease> is required by probeSelector.
+###
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: {{ .Values.probe.jobName }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    release: {{ .Values.prometheusRelease }}
+spec:
+  jobName: {{ .Values.probe.jobName }}
+  interval: {{ .Values.probe.interval }}
+  module: {{ .Values.probe.module }}
+  prober:
+    url: {{ .Values.probe.proberURL }}
+  targets:
+    staticConfig:
+      static:
+        {{- range .Values.services }}
+        - {{ .url }}
+        {{- end }}

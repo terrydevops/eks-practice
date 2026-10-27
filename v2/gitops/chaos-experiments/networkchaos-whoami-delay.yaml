@@ -1,0 +1,29 @@
+###
+# One-off experiment: inject 200ms±50ms egress latency into whoami pods for 2m.
+#
+# Steady-state hypothesis: probe_success stays 1 but end-to-end latency rises —
+# the "Latency by phase" dashboard panel shows it in the connect/processing phase,
+# and if a latency SLO is defined its fast-burn budget starts ticking.
+#
+# Requires chaos-daemon (needs the containerd socket — configured in the
+# chaos-mesh addon for Bottlerocket). direction:to = affects outbound traffic.
+###
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: whoami-network-delay
+  namespace: chaos-mesh
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces:
+      - whoami-staging-app
+    labelSelectors:
+      app: whoami
+  direction: to
+  delay:
+    latency: "200ms"
+    jitter: "50ms"
+    correlation: "50"
+  duration: "2m"

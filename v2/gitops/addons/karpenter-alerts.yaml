@@ -1,0 +1,59 @@
+###
+# Custom PrometheusRule for Karpenter dynamic-node conditions. Raw manifest (the
+# addons dir is an ArgoCD directory source). The `release: kube-prometheus-stack`
+# label is REQUIRED — that Prometheus only selects PrometheusRules carrying it.
+#
+# Expressions use ONLY metrics this Karpenter version actually exports (verified
+# against the live /api/v1/label/__name__/values). Note: this version has no
+# karpenter_cloudprovider_errors_total / karpenter_nodeclaims_* metrics, so
+# "provisioning failure" is expressed via the pod-unbound wait time instead.
+#
+# Plain node-not-ready is intentionally NOT duplicated here — the chart's built-in
+# KubeNodeNotReady already covers every node (Karpenter nodes are real nodes), and
+# we kept that rule (it is a genuine signal on EKS, unlike the control-plane ones).
+###
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: karpenter-dynamic-nodes
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: karpenter-dynamic-nodes
+      rules:
+        # Provisioning headroom exhausted: once usage hits the NodePool limit,
+        # Karpenter cannot launch more capacity and new pods stay Pending.
+        - alert: KarpenterNodePoolNearLimit
+          expr: karpenter_nodepools_usage / (karpenter_nodepools_limit > 0) > 0.9
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Karpenter NodePool {{ $labels.nodepool }} near its {{ $labels.resource_type }} limit"
+            description: "NodePool {{ $labels.nodepool }} is at {{ $value | humanizePercentage }} of its {{ $labels.resource_type }} limit. Karpenter cannot provision more {{ $labels.resource_type }}, so new pods may stay Pending."
+
+        # Provisioning failure / lag: a pod has been waiting for a node far longer
+        # than a normal launch (~1-2m). Typical causes: NodePool/EC2NodeClass
+        # misconfig, insufficient EC2 capacity, or subnet/SG discovery problems.
+        - alert: KarpenterProvisioningStuck
+          expr: max(karpenter_pods_unbound_time_seconds) > 600
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "A pod has waited >10m for a Karpenter node"
+            description: "Karpenter has left a pod unbound for {{ $value | humanizeDuration }}. Check the karpenter controller logs, NodePool/EC2NodeClass, and EC2 capacity in the AZs."
+
+        # Node churn: the managed node count is flapping (rapid create/terminate),
+        # which points at aggressive consolidation, flapping workloads, or repeated
+        # provisioning failures that keep retrying.
+        - alert: KarpenterNodeChurnHigh
+          expr: changes(karpenter_cluster_state_node_count[1h]) > 15
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Karpenter node count is churning"
+            description: "The Karpenter-managed node count changed {{ $value }} times in the last hour, suggesting rapid create/terminate churn."

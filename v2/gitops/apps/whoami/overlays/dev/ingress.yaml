@@ -1,0 +1,28 @@
+###
+# Public ALB for whoami (dev). The LB controller builds an internet-facing ALB,
+# auto-discovers the *.__BASE_DOMAIN__ ACM cert by host for the HTTPS listener, and
+# external-dns creates whoami-dev.__BASE_DOMAIN__ -> ALB. target-type ip = ALB hits
+# pod IPs directly (so the NetworkPolicy must allow the public-subnet CIDRs).
+###
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: whoami
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+spec:
+  ingressClassName: alb
+  rules:
+    - host: whoami-dev.__BASE_DOMAIN__
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whoami
+                port:
+                  number: 80

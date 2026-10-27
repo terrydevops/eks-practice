@@ -1,0 +1,27 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-image-registries
+  annotations:
+    policies.kyverno.io/title: Restrict Image Registries
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+spec:
+  background: true
+  rules:
+    - name: validate-registries
+      # Scope to business namespaces only (<app>-app). Platform components
+      # (kyverno's own reg.kyverno.io images, prometheus, karpenter, ...) are not
+      # held to the app registry allowlist -- they're governed separately.
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: ["*-app"]
+      validate:
+        failureAction: Audit
+        message: "Images must come from an approved registry (use a fully-qualified ref, e.g. docker.io/...)."
+        pattern:
+          spec:
+            containers:
+              - image: "docker.io/* | quay.io/* | registry.k8s.io/* | ghcr.io/* | public.ecr.aws/* | *.dkr.ecr.*.amazonaws.com/*"

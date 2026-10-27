@@ -1,0 +1,82 @@
+###
+# Two ApplicationSets fan out everything ArgoCD manages.
+#
+# 1) addons — platform-class. A cluster generator reads the ArgoCD cluster
+#    Secret annotations (written by Terraform via the GitOps Bridge) so each
+#    cluster gets the right region / IAM / enable-flags WITHOUT Terraform
+#    installing any Helm chart. (Skeleton: shows the wiring; per-addon
+#    Applications/Helm values get added under gitops/addons/.)
+#
+# 2) apps — business-class. This is the SHARED non-prod cluster: a git directory
+#    generator walks apps/<app>/overlays/{dev,staging} and deploys each env into
+#    its OWN namespace <app>-<env>-app (so dev and staging coexist, isolated by
+#    namespace). prod is a separate cluster with its own ArgoCD, so overlays/prod
+#    is intentionally not listed here. "A directory exists" == "deploy it".
+###
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: addons
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - clusters: {} # selects registered clusters; metadata = bridge annotations
+  template:
+    metadata:
+      name: "addons-{{.name}}"
+    spec:
+      project: platform
+      source:
+        repoURL: __GIT_REPO_URL__
+        targetRevision: main
+        path: v2/gitops/addons
+      destination:
+        server: "{{.server}}"
+        namespace: argocd
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: ["CreateNamespace=true", "ServerSideApply=true"]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: apps
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    # Shared non-prod cluster hosts BOTH dev and staging. List only these two
+    # overlays; each lands in its own namespace (below). prod is a separate
+    # cluster -- overlays/prod is deployed by that cluster's own ArgoCD, not here.
+    - git:
+        repoURL: __GIT_REPO_URL__
+        revision: HEAD
+        directories:
+          - path: v2/gitops/apps/*/overlays/dev
+          - path: v2/gitops/apps/*/overlays/staging
+  template:
+    metadata:
+      name: "{{index .path.segments 3}}-{{.path.basename}}" # <app>-<env>
+    spec:
+      project: apps
+      source:
+        repoURL: __GIT_REPO_URL__
+        targetRevision: HEAD
+        path: "{{.path.path}}"
+      destination:
+        server: https://kubernetes.default.svc # this shared non-prod cluster
+        namespace: "{{index .path.segments 3}}-{{.path.basename}}-app" # <app>-<env>-app
+      syncPolicy:
+        # Pod Security Admission: every <app>-<env>-app namespace is created with
+        # the 'restricted' labels. whoami already complies (runAsNonRoot, seccomp
+        # RuntimeDefault, drop ALL, RO rootfs), so enforce is safe. PSA only gates
+        # admission -- running pods are never evicted.
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: restricted
+            pod-security.kubernetes.io/warn: restricted
+            pod-security.kubernetes.io/audit: restricted
+        automated: { prune: true, selfHeal: true }
+        syncOptions: ["CreateNamespace=true"]

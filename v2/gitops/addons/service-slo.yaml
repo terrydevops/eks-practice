@@ -1,0 +1,30 @@
+###
+# Deploys the reusable service-slo chart (../charts/service-slo) — the blackbox
+# Probe + per-service availability/latency SLOs. Replaces the hand-written
+# whoami-probe.yaml + whoami-slo.yaml with a parameterised chart.
+#
+# This instance uses the chart's default values (whoami staging + dev). To reuse
+# elsewhere, override `helm.valuesObject.services` here (or copy the chart and
+# edit its values.yaml) — no template changes needed.
+###
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: service-slo
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: __GIT_REPO_URL__
+    targetRevision: main
+    path: v2/gitops/charts/service-slo
+    helm:
+      releaseName: service-slo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true

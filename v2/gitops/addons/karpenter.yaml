@@ -1,0 +1,52 @@
+###
+# Karpenter controller (Helm). AWS side (IAM role, SQS interruption queue, node
+# role, Pod Identity association) was created by Terraform in the cluster module;
+# the controller just consumes it. Values come from the cluster's real metadata:
+#   clusterName       = eks-practice-nonprod
+#   interruptionQueue = Karpenter-eks-practice-nonprod
+# ServiceAccount name must be `karpenter` in kube-system to match the Pod Identity
+# association (so NO role-arn annotation is needed — Pod Identity provides creds).
+# sync-wave -5 = after CRDs (-10), before NodePool/EC2NodeClass (+5).
+###
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: karpenter
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+spec:
+  project: platform
+  source:
+    repoURL: public.ecr.aws/karpenter
+    chart: karpenter
+    targetRevision: 1.13.0
+    helm:
+      releaseName: karpenter
+      skipCrds: true # CRDs come from the karpenter-crd Application
+      valuesObject:
+        replicas: 2 # HA: leader election picks one active, one hot standby.
+        # Required anti-affinity puts one per node -> fits our 2 nodes; trimmed
+        # request keeps headroom on the busier node (no extra node provisioned).
+        settings:
+          clusterName: eks-practice-nonprod
+          interruptionQueue: Karpenter-eks-practice-nonprod
+        serviceAccount:
+          name: karpenter # matches the Pod Identity association (kube-system/karpenter)
+        # NOTE: the chart's serviceMonitor is gated behind a cluster lookup, so it is
+        # skipped under ArgoCD's `helm template`. We ship a standalone ServiceMonitor
+        # instead (karpenter-servicemonitor.yaml).
+        controller:
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true", "ServerSideApply=true"]

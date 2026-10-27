@@ -1,0 +1,26 @@
+###
+# Karpenter CRDs — installed via the SEPARATE karpenter-crd chart on purpose:
+# ArgoCD renders Helm with `helm template`, which SKIPS a chart's crds/ folder,
+# so the main karpenter chart's bundled CRDs would not be applied. The dedicated
+# karpenter-crd chart ships them as normal templates. sync-wave -10 = before the
+# controller (-5) and the NodePool/EC2NodeClass config (+5).
+###
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: karpenter-crd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  project: platform
+  source:
+    repoURL: public.ecr.aws/karpenter # OCI registry (no oci:// prefix in ArgoCD)
+    chart: karpenter-crd
+    targetRevision: 1.13.0
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["ServerSideApply=true"] # CRDs are large -> SSA avoids the annotation size limit

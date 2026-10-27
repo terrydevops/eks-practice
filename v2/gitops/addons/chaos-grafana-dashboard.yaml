@@ -1,0 +1,129 @@
+###
+# Purpose-built Grafana dashboard for chaos experiments. grafana_dashboard=1 makes
+# the kube-prometheus-stack sidecar auto-import it. Organized by failure type so
+# one screen covers any experiment:
+#   - Steady State (SLO): probe_success / latency / latency-by-phase / HTTP status
+#   - Pods (pod chaos): ready vs desired replicas / restarts / phase / memory
+#   - Nodes (node chaos + Karpenter): node count / ready / pending pods / CPU
+# All queries use metrics already scraped (blackbox Probe + kube-state-metrics +
+# cAdvisor + karpenter). whoami namespaces are matched with whoami-.*-app.
+###
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chaos-whoami-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  chaos-whoami.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "schemaVersion": 39,
+      "title": "Chaos Engineering — whoami",
+      "uid": "chaos-whoami",
+      "tags": ["chaos"],
+      "time": { "from": "now-30m", "to": "now" },
+      "refresh": "10s",
+      "templating": {
+        "list": [
+          { "name": "datasource", "type": "datasource", "query": "prometheus", "hide": 0, "current": { "text": "Prometheus", "value": "Prometheus" } }
+        ]
+      },
+      "panels": [
+        { "id": 100, "type": "row", "title": "Steady State (SLO) — watch these during EVERY experiment", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+        {
+          "id": 1, "title": "Availability  probe_success (1=up, 0=DOWN)", "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+          "fieldConfig": { "defaults": { "min": 0, "max": 1, "custom": { "lineWidth": 2, "fillOpacity": 25, "drawStyle": "line", "spanNulls": true } }, "overrides": [] },
+          "targets": [ { "refId": "A", "expr": "probe_success{job=\"whoami-public\"}", "legendFormat": "{{instance}}" } ]
+        },
+        {
+          "id": 2, "title": "End-to-end latency  probe_duration_seconds", "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+          "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2, "fillOpacity": 10, "drawStyle": "line" } }, "overrides": [] },
+          "targets": [ { "refId": "A", "expr": "probe_duration_seconds{job=\"whoami-public\"}", "legendFormat": "{{instance}}" } ]
+        },
+        {
+          "id": 3, "title": "Latency by phase (network chaos shows here)  probe_http_duration_seconds", "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+          "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2, "fillOpacity": 10, "drawStyle": "line", "stacking": { "mode": "normal" } } }, "overrides": [] },
+          "targets": [ { "refId": "A", "expr": "probe_http_duration_seconds{job=\"whoami-public\", instance=\"https://whoami-staging.__BASE_DOMAIN__\"}", "legendFormat": "{{phase}}" } ]
+        },
+        {
+          "id": 4, "title": "HTTP status code  probe_http_status_code", "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+          "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 0, "drawStyle": "line" } }, "overrides": [] },
+          "targets": [ { "refId": "A", "expr": "probe_http_status_code{job=\"whoami-public\"}", "legendFormat": "{{instance}}" } ]
+        },
+        { "id": 200, "type": "row", "title": "Pods  (pod-kill / pod-failure / stress)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 } },
+        {
+          "id": 5, "title": "Ready vs desired replicas", "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+          "fieldConfig": { "defaults": { "min": 0, "custom": { "lineWidth": 2, "fillOpacity": 15, "drawStyle": "line", "stepInterval": 1 } }, "overrides": [] },
+          "targets": [
+            { "refId": "A", "expr": "kube_deployment_status_replicas_available{namespace=~\"whoami-.*-app\", deployment=\"whoami\"}", "legendFormat": "{{namespace}} ready" },
+            { "refId": "B", "expr": "kube_deployment_spec_replicas{namespace=~\"whoami-.*-app\", deployment=\"whoami\"}", "legendFormat": "{{namespace}} desired" }
+          ]
+        },
+        {
+          "id": 6, "title": "Pod restarts (increase over 5m)", "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+          "fieldConfig": { "defaults": { "min": 0, "custom": { "lineWidth": 2, "fillOpacity": 20, "drawStyle": "bars" } }, "overrides": [] },
+          "targets": [ { "refId": "A", "expr": "sum by (namespace) (increase(kube_pod_container_status_restarts_total{namespace=~\"whoami-.*-app\"}[5m]))", "legendFormat": "{{namespace}}" } ]
+        },
+        {
+          "id": 7, "title": "Pods by phase", "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+          "fieldConfig": { "defaults": { "min": 0, "custom": { "lineWidth": 2, "fillOpacity": 25, "drawStyle": "line", "stacking": { "mode": "normal" } } }, "overrides": [] },
+          "targets": [ { "refId": "A", "expr": "sum by (phase) (kube_pod_status_phase{namespace=~\"whoami-.*-app\"})", "legendFormat": "{{phase}}" } ]
+        },
+        {
+          "id": 8, "title": "Container memory working set (stress chaos)", "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+          "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 2, "fillOpacity": 10, "drawStyle": "line" } }, "overrides": [] },
+          "targets": [ { "refId": "A", "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=~\"whoami-.*-app\", container!=\"\"})", "legendFormat": "{{pod}}" } ]
+        },
+        { "id": 300, "type": "row", "title": "Nodes / Karpenter  (drain / node-kill)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 } },
+        {
+          "id": 9, "title": "Node count (watch Karpenter scale up on node loss)", "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 35 },
+          "fieldConfig": { "defaults": { "min": 0, "custom": { "lineWidth": 2, "fillOpacity": 15, "drawStyle": "line", "stepInterval": 1 } }, "overrides": [] },
+          "targets": [
+            { "refId": "A", "expr": "count(kube_node_info)", "legendFormat": "total nodes" },
+            { "refId": "B", "expr": "karpenter_cluster_state_node_count", "legendFormat": "karpenter view" }
+          ]
+        },
+        {
+          "id": 10, "title": "Nodes Ready", "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 35 },
+          "fieldConfig": { "defaults": { "min": 0, "custom": { "lineWidth": 2, "fillOpacity": 15, "drawStyle": "line", "stepInterval": 1 } }, "overrides": [] },
+          "targets": [ { "refId": "A", "expr": "sum(kube_node_status_condition{condition=\"Ready\", status=\"true\"})", "legendFormat": "ready" } ]
+        },
+        {
+          "id": 11, "title": "Pending pods (Karpenter trigger)", "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 43 },
+          "fieldConfig": { "defaults": { "min": 0, "custom": { "lineWidth": 2, "fillOpacity": 25, "drawStyle": "bars" } }, "overrides": [] },
+          "targets": [ { "refId": "A", "expr": "sum(kube_pod_status_phase{phase=\"Pending\"})", "legendFormat": "pending (cluster)" } ]
+        },
+        {
+          "id": 12, "title": "whoami CPU usage (cores)", "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 43 },
+          "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10, "drawStyle": "line" } }, "overrides": [] },
+          "targets": [ { "refId": "A", "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"whoami-.*-app\", container!=\"\"}[2m]))", "legendFormat": "{{pod}}" } ]
+        }
+      ]
+    }

@@ -1,0 +1,29 @@
+###
+# Availability SLO per service: bool_gauge on probe_success (1=up). Pyrra turns
+# each into recording + multi-window burn-rate alerting rules and shows the error
+# budget in its UI.
+#
+# SkipDryRunOnMissingResource: the Pyrra CRD may install in the same app-of-apps
+# sync, so skip the dry-run on first apply (same guard as the hand-written SLO
+# this chart replaces).
+###
+{{- range .Values.services }}
+---
+apiVersion: pyrra.dev/v1alpha1
+kind: ServiceLevelObjective
+metadata:
+  name: {{ .name }}-availability
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    prometheus: k8s
+    release: {{ $.Values.prometheusRelease }}
+spec:
+  target: {{ .availability.target | quote }}
+  window: {{ .availability.window }}
+  description: {{ .name }} end-to-end availability (blackbox probe_success)
+  indicator:
+    bool_gauge:
+      metric: probe_success{job="{{ $.Values.probe.jobName }}", instance="{{ .url }}"}
+{{- end }}

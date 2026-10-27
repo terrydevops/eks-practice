@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whoami
+  labels:
+    app: whoami
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: whoami
+  template:
+    metadata:
+      labels:
+        app: whoami
+    spec:
+      # Spread replicas across AZs and nodes so a single node/AZ failure can't take
+      # out every replica (which would defeat the PDB). Soft (ScheduleAnyway) so a
+      # small 2-node cluster never leaves pods Pending. matchLabelKeys ignores the
+      # old ReplicaSet during rollouts so skew is computed per-revision (k8s >=1.27).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: whoami
+          matchLabelKeys:
+            - pod-template-hash
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: whoami
+          matchLabelKeys:
+            - pod-template-hash
+      # Restricted PodSecurity-compliant (fixes the v1 review finding: v1 ran root).
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: whoami
+          # Fully-qualified (docker.io/) so it passes the restrict-image-registries
+          # policy; a bare Docker Hub short name has no registry prefix to match.
+          image: docker.io/traefik/whoami:v1.10.1
+          args: ["--port=8080"] # non-root cannot bind :80
+          ports:
+            - containerPort: 8080
+          # Health probes (EKS best-practices reliability gap from the hardeneks
+          # report). readiness gates the pod out of the ALB/Service until it serves;
+          # liveness restarts it if it wedges (e.g. during a pod-failure chaos run).
+          readinessProbe:
+            httpGet: { path: /, port: 8080 }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65532
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            # Right-sized from the VPA recommendation (updateMode: Off): CPU was
+            # over-provisioned (25m -> 15m), memory under the VPA floor (32Mi -> 100Mi).
+            # Memory limit raised above the new request (limit must be >= request).
+            requests:
+              cpu: 15m
+              memory: 100Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi

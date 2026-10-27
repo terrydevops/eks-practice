@@ -1,0 +1,40 @@
+# Namespace for the Probe, SLOs and recording rules. Pyrra watches SLOs
+# cluster-wide; keeping them next to Prometheus (monitoring) matches the rest of
+# the stack.
+namespace: monitoring
+
+# The label kube-prometheus-stack's Prometheus uses to select PrometheusRule /
+# Probe objects (ruleSelector / probeSelector matchLabels release=<this>). Pyrra
+# copies each SLO's metadata.labels onto the PrometheusRule it generates, so this
+# label must be present for the generated burn-rate rules to be scraped too.
+prometheusRelease: kube-prometheus-stack
+
+# Blackbox probe wiring shared by every service below.
+probe:
+  jobName: whoami-public
+  interval: 5s
+  module: http_2xx
+  proberURL: blackbox-exporter:9115
+
+# One entry per probed URL. `availability` is required; `latency` is optional —
+# omit it and no latency SLO/recording-rule is generated for that service.
+#
+# latency.threshold is in seconds: probe_duration_seconds under it counts as
+# "fast". A recording rule turns that into a 0/1 gauge and Pyrra runs a bool_gauge
+# SLO on it (blackbox emits gauges, not histograms, so this is how you get a
+# latency SLO out of it).
+services:
+  - name: whoami-staging
+    url: https://whoami-staging.__BASE_DOMAIN__
+    availability:
+      target: "99.5"
+      window: 1w
+    latency:
+      target: "99"
+      window: 1w
+      threshold: 0.5
+  - name: whoami-dev
+    url: https://whoami-dev.__BASE_DOMAIN__
+    availability:
+      target: "99"
+      window: 1w

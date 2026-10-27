@@ -1,0 +1,41 @@
+###
+# external-dns — watches Ingresses and creates Route53 records. The zone
+# __BASE_DOMAIN__ is in the mgmt account, so it ASSUMES the cross-account
+# eks-practice-dns role (--aws-assume-role); its in-cluster role (Pod Identity,
+# kube-system/external-dns) only has permission to assume that role.
+# policy: upsert-only -> never deletes records it didn't create (safe).
+###
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: https://kubernetes-sigs.github.io/external-dns
+    chart: external-dns
+    targetRevision: 1.21.1
+    helm:
+      releaseName: external-dns
+      valuesObject:
+        provider:
+          name: aws
+        serviceAccount:
+          name: external-dns
+        domainFilters:
+          - __BASE_DOMAIN__
+        policy: upsert-only
+        txtOwnerId: eks-practice-nonprod
+        extraArgs:
+          - --aws-assume-role=__DNS_ROLE_ARN__
+        env:
+          - name: AWS_DEFAULT_REGION
+            value: ap-southeast-2
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,37 @@
+###
+# Blackbox Exporter — synthetic probing. Lets Prometheus measure whoami's
+# end-to-end availability + latency from outside the pod (probe_success,
+# probe_duration_seconds), which is the real "steady state" signal a chaos
+# experiment watches. Paired with the Probe CR in whoami-probe.yaml and the
+# "Chaos Engineering" Grafana dashboard.
+###
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: blackbox-exporter
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: prometheus-blackbox-exporter
+    targetRevision: 11.13.0
+    helm:
+      releaseName: blackbox-exporter
+      valuesObject:
+        fullnameOverride: blackbox-exporter
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 64Mi
+        # http_2xx is built into the chart's default config; we reference it from
+        # the Probe. TLS targets work out of the box.
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true

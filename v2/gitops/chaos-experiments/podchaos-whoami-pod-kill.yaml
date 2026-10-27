@@ -1,0 +1,24 @@
+###
+# One-off experiment: kill one whoami pod and watch the SLO hold.
+#
+# Steady-state hypothesis: probe_success stays 1 (the Service load-balances to the
+# surviving replicas, PDB + topology spread keep >1 pod up). Watch the "Chaos
+# Engineering — whoami" Grafana dashboard's Availability panel during the run.
+#
+# pod-kill is instantaneous (no duration) — the Deployment recreates the pod.
+# Applied only when this path's Application is manually synced (see the addons
+# chaos-experiments.yaml), so it never runs on its own.
+###
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: whoami-pod-kill
+  namespace: chaos-mesh
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - whoami-staging-app
+    labelSelectors:
+      app: whoami
